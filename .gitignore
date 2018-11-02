@@ -1,0 +1,3 @@
+code-coverage.csv
+code-coverage-rules.gradle
+exclude-classes.gradle
