@@ -14,6 +14,14 @@ Default outputs to
 
 	code-coverage-rules.gradle
 
+Excludes need to apply to the global coverage rule. Define the pre and post
+section of that rule via the params (these are defaults as well):
+
+	pre_excludes_file=pre_excludes.gradle
+	post_excludes_file=post_excludes.gradle
+
+Generated excludes array will be wrapped by these two files.
+
 Rules aren't generated for coverage greater than a certain amount to allow for
 global rules to apply.
 

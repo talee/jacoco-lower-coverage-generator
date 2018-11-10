@@ -2,9 +2,13 @@
 #
 # Generates Jacoco rules that match current code coverage so that next commit
 # must cover at least the current coverage or higher. Useful when starting code
-# coverage for an existing code base
+# coverage for an existing code base.
 #
-# Version: 1.0.0
+# Version: 2.0.0
+#
+# See README.md for full list of parameters to pass.
+#
+# https://github.com/talee/jacoco-lower-coverage-generator
 #
 if [ -z "$input_file" ]; then
     input_file='code-coverage.csv'
@@ -25,8 +29,11 @@ if [ ! -f "$output_file" ]; then
     echo "input_file=somefile.csv output_file=directory/someoutput.gradle ./run.sh"
 fi
 
-if [ -z "$excludes_file" ]; then
-    excludes_file=exclude-classes.gradle
+if [ -z "$pre_excludes_file" ]; then
+    pre_excludes_file=pre_excludes.gradle
+fi
+if [ -z "$post_excludes_file" ]; then
+    post_excludes_file=post_excludes.gradle
 fi
 
 # Don't create rules coverage greater than these %. Global coverage rules will
@@ -38,11 +45,6 @@ if [ -z "$branch_max_default" ]; then
     branch_max_default=0.9
 fi
 
-# Write standard verification block
-echo \
-'jacocoTestCoverageVerification {
-    violationRules {' >> "$output_file"
-
 COLUMN_INDEX_PACKAGE=1
 COLUMN_INDEX_CLASS=2
 COLUMN_INDEX_INSTRUCTION_MISSED=3
@@ -52,24 +54,53 @@ COLUMN_INDEX_BRANCH_COVERED=6
 
 EXCLUDE_CLASSES=()
 
-# Read in each line and generate a rule
 main() {
+    # Read in each line, generate a rule, store in memory
     header_line_read=0
+    generated_rule_lines=()
     while IFS='' read -r line || [[ -n "$line" ]]; do
         if [ $header_line_read = 0 ]; then
             header_line_read=1
             continue
         fi
-        generate_rule "$line" >> "$output_file"
+        # Appends rule to global array generated_rule_lines
+        generate_rule "$line"
     done < "$input_file"
 
-    # TODO: Improve this
-    echo "excludes = [" > "$excludes_file"
+    # Write standard verification block
+    echo \
+'jacocoTestCoverageVerification {
+    violationRules {' >> "$output_file"
+
+    # Write rule section prefix for excludes
+    if [ "$pre_excludes_file" ]; then
+        cat "$pre_excludes_file" >> "$output_file"
+    fi
+    write_excludes
+    # Write rule section postfix for excludes
+    if [ "$post_excludes_file" ]; then
+        cat "$post_excludes_file" >> "$output_file"
+    fi
+
+    # Write generated rules
+    IFS=''
+    for line in "${generated_rule_lines[@]}"; do
+        echo "$line" >> "$output_file"
+    done
+
+    # Write and close standard verification block
+    echo '
+    }
+}' >> "$output_file"
+}
+
+write_excludes() {
+    echo "            excludes = [" >> "$output_file"
     for package_class in "${EXCLUDE_CLASSES[@]}"
     do
-        echo "'$package_class'," >> "$excludes_file"
+        echo "                '$package_class'," >> "$output_file"
     done
-    echo "]" >> "$excludes_file"
+    echo "            ]" >> "$output_file"
 }
 
 # $1 = math expression
@@ -97,7 +128,7 @@ print_err() {
 }
 
 # $1 = line from file
-# Echos a multiline rule string
+# Appends generated rule string to global array variable generated_rule_lines
 generate_rule() {
     local line=$1
     IFS=','
@@ -119,37 +150,32 @@ generate_rule() {
     fi
     # Add to excludes array
     EXCLUDE_CLASSES+=("$PACKAGE.$CLASS")
-    echo \
+    generated_rule_lines+=(
 "        rule {
             element = 'CLASS'
-            includes = ['$PACKAGE.$CLASS']"
+            includes = ['$PACKAGE.$CLASS']")
 
     # Only add branch rule if there are branches to cover
     if [ "$BRANCH_MIN" -a "$IGNORE_BRANCH" = '0' ]; then
-        echo \
+        generated_rule_lines+=(
 "            limit {
                 counter = 'BRANCH'
                 value = 'COVEREDRATIO'
                 minimum = $BRANCH_MIN
-            }"
+            }")
     fi
 
     # Only add instruction rule if there are instructions to cover (not 100%)
     if [ "$INSTRUCTION_MIN" -a "$IGNORE_INSTRUCTION" = '0' ]; then
-    echo \
+        generated_rule_lines+=(
 "            limit {
                 counter = 'INSTRUCTION'
                 value = 'COVEREDRATIO'
                 minimum = $INSTRUCTION_MIN
-            }"
+            }")
     fi
-    echo \
-'        }'
+    generated_rule_lines+=(
+'        }')
 }
 
 main "$@"
-
-# Write and close standard verification block
-echo '
-    }
-}' >> "$output_file"
